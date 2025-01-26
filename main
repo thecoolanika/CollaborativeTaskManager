@@ -1,0 +1,140 @@
+// Full-Stack Real-Time Task Management App
+// We'll build the backend first, starting with Node.js and Express for the API and WebSocket integration.
+
+// === BACKEND ===
+
+// server.js
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const mongoose = require('mongoose');
+const bcrypt = require('bcrypt');
+const cors = require('cors');
+
+// Initialize app
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: '*' } });
+
+// Middleware
+app.use(express.json());
+app.use(cors());
+
+// MongoDB Connection
+mongoose.connect('mongodb://localhost:27017/taskApp', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
+
+// Schemas
+const UserSchema = new mongoose.Schema({
+  email: { type: String, unique: true, required: true },
+  passwordHash: { type: String, required: true },
+});
+
+const TaskSchema = new mongoose.Schema({
+  title: String,
+  description: String,
+  status: { type: String, default: 'To Do' },
+  assignedTo: [String],
+});
+
+const User = mongoose.model('User', UserSchema);
+const Task = mongoose.model('Task', TaskSchema);
+
+// Routes
+// User Registration
+app.post('/register', async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = new User({ email, passwordHash });
+    await user.save();
+    res.status(201).json({ message: 'User registered successfully' });
+  } catch (error) {
+    res.status(400).json({ error: 'Registration failed' });
+  }
+});
+
+// User Login
+app.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (user && (await bcrypt.compare(password, user.passwordHash))) {
+      res.status(200).json({ message: 'Login successful' });
+    } else {
+      res.status(400).json({ error: 'Invalid credentials' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// CRUD for Tasks
+// Get All Tasks
+app.get('/tasks', async (req, res) => {
+  try {
+    const tasks = await Task.find();
+    res.status(200).json(tasks);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch tasks' });
+  }
+});
+
+// Create Task
+app.post('/tasks', async (req, res) => {
+  const { title, description, assignedTo } = req.body;
+  try {
+    const task = new Task({ title, description, assignedTo });
+    await task.save();
+    io.emit('task_created', task); // Emit event to all clients
+    res.status(201).json(task);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to create task' });
+  }
+});
+
+// Update Task
+app.put('/tasks/:id', async (req, res) => {
+  const { id } = req.params;
+  const { title, description, status, assignedTo } = req.body;
+  try {
+    const task = await Task.findByIdAndUpdate(
+      id,
+      { title, description, status, assignedTo },
+      { new: true }
+    );
+    io.emit('task_updated', task); // Emit event to all clients
+    res.status(200).json(task);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update task' });
+  }
+});
+
+// Delete Task
+app.delete('/tasks/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await Task.findByIdAndDelete(id);
+    io.emit('task_deleted', id); // Emit event to all clients
+    res.status(200).json({ message: 'Task deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete task' });
+  }
+});
+
+// WebSocket Events
+io.on('connection', (socket) => {
+  console.log('A user connected');
+
+  socket.on('disconnect', () => {
+    console.log('A user disconnected');
+  });
+});
+
+// Start Server
+const PORT = 5000;
+server.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+});
