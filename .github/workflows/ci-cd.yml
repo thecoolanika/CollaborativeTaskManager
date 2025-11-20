@@ -40,7 +40,7 @@ jobs:
         with:
           node-version: '18'
           cache: 'npm'
-          cache-dir: ./backend/node_modules
+          cache-dependency-path: ./backend/package-lock.json
       
       - name: Install dependencies
         working-directory: ./backend
@@ -72,7 +72,7 @@ jobs:
         with:
           node-version: '18'
           cache: 'npm'
-          cache-dir: ./frontend/node_modules
+          cache-dependency-path: ./frontend/package-lock.json
       
       - name: Install dependencies
         working-directory: ./frontend
@@ -108,8 +108,7 @@ jobs:
           context: ./backend
           push: false
           tags: task-manager-backend:latest
-          cache-from: type=registry,ref=task-manager-backend:latest
-          cache-to: type=inline
+          file: ./backend/Dockerfile
       
       - name: Build frontend image
         uses: docker/build-push-action@v4
@@ -117,8 +116,7 @@ jobs:
           context: ./frontend
           push: false
           tags: task-manager-frontend:latest
-          cache-from: type=registry,ref=task-manager-frontend:latest
-          cache-to: type=inline
+          file: ./frontend/Dockerfile
 
   deploy:
     name: Deploy

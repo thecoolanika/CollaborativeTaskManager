@@ -28,7 +28,7 @@ import {
   Edit as EditIcon,
   Logout as LogoutIcon,
 } from '@mui/icons-material';
-import axios from 'axios';
+import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -95,8 +95,8 @@ const Dashboard = () => {
 
   const fetchTasks = async () => {
     try {
-      const response = await axios.get('/api/tasks');
-      setTasks(response.data.data);
+      const response = await api.get('/tasks');
+      setTasks(response.data.data || []);
     } catch (error) {
       toast.error('Failed to fetch tasks');
     }
@@ -137,10 +137,10 @@ const Dashboard = () => {
   const handleSubmit = async () => {
     try {
       if (editingTask) {
-        await axios.put(`/api/tasks/${editingTask._id}`, taskForm);
+        await api.put(`/tasks/${editingTask._id}`, taskForm);
         toast.success('Task updated!');
       } else {
-        await axios.post('/api/tasks', taskForm);
+        await api.post('/tasks', taskForm);
         toast.success('Task created!');
       }
       handleCloseDialog();
@@ -153,7 +153,7 @@ const Dashboard = () => {
   const handleDelete = async (taskId) => {
     if (window.confirm('Are you sure you want to delete this task?')) {
       try {
-        await axios.delete(`/api/tasks/${taskId}`);
+        await api.delete(`/tasks/${taskId}`);
         toast.success('Task deleted!');
         fetchTasks();
       } catch (error) {

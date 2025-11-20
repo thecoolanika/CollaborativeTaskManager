@@ -11,10 +11,11 @@ exports.getTasks = async (req, res, next) => {
     // Try to get from cache
     const cachedTasks = await redisClient.get(cacheKey);
     if (cachedTasks) {
+      const tasksArray = Array.isArray(cachedTasks) ? cachedTasks : [];
       return res.status(200).json({
         success: true,
-        count: cachedTasks.length,
-        data: cachedTasks,
+        count: tasksArray.length,
+        data: tasksArray,
         cached: true,
       });
     }
@@ -27,19 +28,11 @@ exports.getTasks = async (req, res, next) => {
       query.status = req.query.status;
     }
 
-    // Filter by assigned user or created by user
-    if (req.query.myTasks === 'true') {
-      query.$or = [
-        { assignedTo: req.user.id },
-        { createdBy: req.user.id },
-      ];
-    } else {
-      // Show all tasks user is involved with
-      query.$or = [
-        { assignedTo: req.user.id },
-        { createdBy: req.user.id },
-      ];
-    }
+    // Always filter to show tasks user is involved with (assigned or created)
+    query.$or = [
+      { assignedTo: req.user.id },
+      { createdBy: req.user.id },
+    ];
 
     // Execute query
     const tasks = await Task.find(query)
@@ -90,6 +83,23 @@ exports.getTask = async (req, res, next) => {
       });
     }
 
+    // Check if user has permission to view this task
+    const isCreator = task.createdBy && (
+      (typeof task.createdBy === 'object' && task.createdBy._id ? task.createdBy._id.toString() : task.createdBy.toString()) === req.user.id
+    );
+    const assignedToArray = Array.isArray(task.assignedTo) ? task.assignedTo : (task.assignedTo ? [task.assignedTo] : []);
+    const isAssigned = assignedToArray.some(u => {
+      const userId = u && typeof u === 'object' && u._id ? u._id.toString() : (u ? u.toString() : null);
+      return userId === req.user.id;
+    });
+
+    if (!isCreator && !isAssigned) {
+      return res.status(403).json({
+        success: false,
+        error: 'Not authorized to view this task',
+      });
+    }
+
     // Cache task for 5 minutes
     await redisClient.set(cacheKey, task, 300);
 
@@ -117,9 +127,15 @@ exports.createTask = async (req, res, next) => {
       .lean();
 
     // Invalidate cache for creator and all assigned users
+    const assignedToArray = Array.isArray(populatedTask.assignedTo) ? populatedTask.assignedTo : (populatedTask.assignedTo ? [populatedTask.assignedTo] : []);
     const userIdsToInvalidate = [
       req.user.id.toString(),
-      ...(populatedTask.assignedTo || []).map(u => u._id ? u._id.toString() : u.toString())
+      ...assignedToArray.map(u => {
+        if (u && typeof u === 'object' && u._id) {
+          return u._id.toString();
+        }
+        return u ? u.toString() : null;
+      }).filter(Boolean)
     ];
     await invalidateTaskCache(userIdsToInvalidate);
 
@@ -160,7 +176,8 @@ exports.updateTask = async (req, res, next) => {
 
     // Check if user has permission (creator or assigned)
     const isCreator = task.createdBy.toString() === req.user.id;
-    const isAssigned = task.assignedTo && task.assignedTo.some(id => id.toString() === req.user.id);
+    const assignedToCheck = Array.isArray(task.assignedTo) ? task.assignedTo : (task.assignedTo ? [task.assignedTo] : []);
+    const isAssigned = assignedToCheck.length > 0 && assignedToCheck.some(id => id.toString() === req.user.id);
     
     if (!isCreator && !isAssigned) {
       return res.status(403).json({
@@ -178,9 +195,19 @@ exports.updateTask = async (req, res, next) => {
       .lean();
 
     // Get all users involved in the task
+    const createdById = task.createdBy && typeof task.createdBy === 'object' && task.createdBy._id 
+      ? task.createdBy._id.toString() 
+      : task.createdBy.toString();
+    
+    const assignedToArray = Array.isArray(task.assignedTo) ? task.assignedTo : (task.assignedTo ? [task.assignedTo] : []);
     const userIdsToInvalidate = [
-      task.createdBy._id ? task.createdBy._id.toString() : task.createdBy.toString(),
-      ...(task.assignedTo || []).map(u => u._id ? u._id.toString() : u.toString())
+      createdById,
+      ...assignedToArray.map(u => {
+        if (u && typeof u === 'object' && u._id) {
+          return u._id.toString();
+        }
+        return u ? u.toString() : null;
+      }).filter(Boolean)
     ];
     
     // Invalidate cache
@@ -231,9 +258,10 @@ exports.deleteTask = async (req, res, next) => {
     }
 
     // Get all users involved before deleting
+    const assignedToArray = Array.isArray(task.assignedTo) ? task.assignedTo : (task.assignedTo ? [task.assignedTo] : []);
     const userIdsToInvalidate = [
       task.createdBy.toString(),
-      ...(task.assignedTo || []).map(a => a.toString())
+      ...assignedToArray.map(a => a ? a.toString() : null).filter(Boolean)
     ];
     
     await Task.findByIdAndDelete(req.params.id);

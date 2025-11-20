@@ -63,20 +63,22 @@ const initializeSocket = async (server) => {
 
   // Connection handling
   io.on('connection', (socket) => {
-    console.log(`User connected: ${socket.user.email} (${socket.id})`);
+    console.log(`User connected: ${socket.user?.email || 'Unknown'} (${socket.id})`);
 
     // Join user to their personal room
-    socket.join(`user:${socket.userId}`);
+    if (socket.userId) {
+      socket.join(`user:${socket.userId}`);
+    }
 
     // Join task rooms for real-time updates
     socket.on('join_task', (taskId) => {
       socket.join(`task:${taskId}`);
-      console.log(`User ${socket.user.email} joined task: ${taskId}`);
+      console.log(`User ${socket.user?.email || 'Unknown'} joined task: ${taskId}`);
     });
 
     socket.on('leave_task', (taskId) => {
       socket.leave(`task:${taskId}`);
-      console.log(`User ${socket.user.email} left task: ${taskId}`);
+      console.log(`User ${socket.user?.email || 'Unknown'} left task: ${taskId}`);
     });
 
     // Handle task updates via WebSocket (optional)
