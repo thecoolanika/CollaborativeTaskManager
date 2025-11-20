@@ -46,7 +46,6 @@ const Dashboard = () => {
   });
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [socket, setSocket] = useState(null);
 
   useEffect(() => {
     // Initialize Socket.IO connection
@@ -54,38 +53,36 @@ const Dashboard = () => {
     if (!token) return;
     
     const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-    const newSocket = io(apiUrl, {
+    const socket = io(apiUrl, {
       auth: {
         token: token,
       },
       transports: ['websocket', 'polling'],
     });
 
-    newSocket.on('connect', () => {
+    socket.on('connect', () => {
       console.log('Connected to server');
     });
 
-    newSocket.on('task_created', (task) => {
+    socket.on('task_created', (task) => {
       setTasks((prev) => [task, ...prev]);
       toast.info('New task created!');
     });
 
-    newSocket.on('task_updated', (task) => {
+    socket.on('task_updated', (task) => {
       setTasks((prev) =>
         prev.map((t) => (t._id === task._id ? task : t))
       );
       toast.info('Task updated!');
     });
 
-    newSocket.on('task_deleted', (data) => {
+    socket.on('task_deleted', (data) => {
       setTasks((prev) => prev.filter((t) => t._id !== data.id));
       toast.info('Task deleted!');
     });
 
-    setSocket(newSocket);
-
     return () => {
-      newSocket.close();
+      socket.close();
     };
   }, []);
 
