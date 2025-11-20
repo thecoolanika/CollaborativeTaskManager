@@ -6,6 +6,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const connectDB = require('./config/database');
+const { connectPostgres } = require('./config/postgres');
 const redisClient = require('./config/redis');
 const errorHandler = require('./middleware/errorHandler');
 const { initializeSocket } = require('./socket/socketHandler');
@@ -13,13 +14,22 @@ const { initializeSocket } = require('./socket/socketHandler');
 // Route files
 const auth = require('./routes/auth');
 const tasks = require('./routes/tasks');
+const ledger = require('./routes/ledger');
 
 // Initialize app
 const app = express();
 const server = http.createServer(app);
 
-// Connect to database
+// Connect to databases
 connectDB();
+
+// Connect to PostgreSQL for ledger
+if (process.env.POSTGRES_HOST || process.env.POSTGRES_DB) {
+  connectPostgres().catch((error) => {
+    console.error('PostgreSQL connection failed:', error.message);
+    console.log('Continuing without PostgreSQL ledger system...');
+  });
+}
 
 // Connect to Redis
 redisClient.connect().catch(console.error);
@@ -62,6 +72,7 @@ app.use('/api/', limiter);
 // Routes
 app.use('/api/auth', auth);
 app.use('/api/tasks', tasks);
+app.use('/api/ledger', ledger);
 
 // Health check
 app.get('/health', (req, res) => {

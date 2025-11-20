@@ -1,5 +1,6 @@
 const Task = require('../models/Task');
 const redisClient = require('../config/redis');
+const ledgerService = require('../services/ledgerService');
 
 // @desc    Get all tasks
 // @route   GET /api/tasks
@@ -186,6 +187,13 @@ exports.updateTask = async (req, res, next) => {
       });
     }
 
+    // Store old status before update
+    const oldStatus = task.status;
+    
+    // Check if task is being marked as completed (status changed to 'Done')
+    const wasCompleted = oldStatus === 'Done';
+    const isBeingCompleted = req.body.status === 'Done' && !wasCompleted;
+
     task = await Task.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true,
@@ -193,6 +201,45 @@ exports.updateTask = async (req, res, next) => {
       .populate('assignedTo', 'email name')
       .populate('createdBy', 'email name')
       .lean();
+
+    // Record ledger transaction if task was just completed
+    if (isBeingCompleted) {
+      try {
+        // Calculate points based on priority
+        const pointsMap = {
+          'Low': 10,
+          'Medium': 25,
+          'High': 50,
+        };
+        const points = pointsMap[task.priority] || 25;
+
+        // Award points to all assigned users (or creator if no one assigned)
+        const createdById = task.createdBy && typeof task.createdBy === 'object' && task.createdBy._id 
+          ? task.createdBy._id.toString() 
+          : task.createdBy.toString();
+        
+        const usersToAward = assignedToCheck.length > 0 
+          ? assignedToCheck.map(id => id.toString())
+          : [createdById];
+
+        // Create ledger entries for each user
+        for (const userId of usersToAward) {
+          await ledgerService.recordTaskCompletion(
+            task._id.toString(),
+            userId,
+            points,
+            {
+              taskTitle: task.title,
+              taskPriority: task.priority,
+              completedAt: new Date().toISOString(),
+            }
+          );
+        }
+      } catch (ledgerError) {
+        // Log error but don't fail the task update
+        console.error('Error recording ledger transaction for task completion:', ledgerError);
+      }
+    }
 
     // Get all users involved in the task
     const createdById = task.createdBy && typeof task.createdBy === 'object' && task.createdBy._id 
